@@ -41,6 +41,7 @@ const limiter = rateLimit({
 // app.use(limiter);
 
 // Routing
+app.use("/", require("./src/api/routes/testVoice")); // Hardware/Latency Test Route
 app.use("/v1", rateIsolationMiddleware, globalGatewayMiddleware, v1Routes);
 
 // Health Check & Prometheus Metrics

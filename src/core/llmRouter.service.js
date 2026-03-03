@@ -70,6 +70,7 @@ class LLMProviderRouter {
             // Simple moving average for local node intelligence
             this.providers[provider].avgLatency = (this.providers[provider].avgLatency * 0.9) + (latency * 0.1);
             metrics.llm_latency.observe({ tenant, model: provider }, latency);
+            logger.info({ provider, latency, tenant }, "LLM Latency Recorded");
         }
     }
 }
