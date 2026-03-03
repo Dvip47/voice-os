@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Universal Runtime API (Horizontal Load Balanced)
+  api:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - DB_URL=postgres://user:pass@db:5432/voice_runtime
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    depends_on:
+      - redis
+      - db
+
+  # Runtime Worker Service (Handles Behavioral Contracts)
+  worker:
+    build: .
+    command: [ "node", "src/workers/call.worker.js" ]
+    environment:
+      - REDIS_URL=redis://redis:6379
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # Distributed Brain (State Store)
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  # Persistence Layer
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=voice_runtime
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
