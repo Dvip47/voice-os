@@ -27,31 +27,80 @@ class MediaStreamServer {
                 return;
             }
 
+            const state = await StateService.getCallState(jobId);
+            const profile = state?.protocol?.runtime?.telephony_profile || "standard";
+
+            // Phase 6 - India PSTN Hardening Params
+            const config = {
+                heartbeatInterval: 5000,
+                mediaTimeout: 15000,
+                silenceThreshold: profile === "india_standard" ? 12000 : 5000,
+                bargeInDelay: 150,
+                maxConcurrent: 100
+            };
+
+            if (this.metrics.activeCalls >= config.maxConcurrent) {
+                logger.error("Worker Saturation: Max concurrent media sessions reached.");
+                ws.terminate();
+                return;
+            }
+
             // Phase 4 - Runtime Signal Tracking
             const session = {
                 startTime: Date.now(),
+                lastMediaTime: Date.now(),
                 interruptions: 0,
                 turnCount: 0,
                 lastSentiment: 0,
-                avgSpeechSpeed: 140
+                avgSpeechSpeed: 140,
+                isAlive: true
             };
 
             this.metrics.activeCalls++;
             metrics.active_calls.inc({ node: process.env.HOSTNAME || "node-1" });
-            logger.info({ jobId, callSid }, "Universal Voice Stream Active (Phase 4 Adaptive)");
+            logger.info({ jobId, callSid, profile }, "Universal Voice Stream Active (India Hardened)");
 
-            await StateService.setCallState(jobId, { status: "active", startTime: session.startTime });
+            if (state && state.timestamp) {
+                const answerTime = Date.now() - state.timestamp;
+                metrics.avg_answer_time.observe({ region: state.protocol?.execution?.region || "auto" }, answerTime);
+                metrics.call_connect_rate.set({ carrier: "twilio-india" }, 1); // Track success connect
+            }
+
+            await StateService.setCallState(jobId, { ...state, status: "active", startTime: session.startTime });
+
+            // Heartbeat & Half-open Detection
+            const heartbeat = setInterval(() => {
+                if (!session.isAlive) {
+                    logger.warn({ jobId }, "Half-open WebSocket detected. Terminating.");
+                    return ws.terminate();
+                }
+                session.isAlive = false;
+                ws.ping();
+
+                // Media Timeout Protection
+                if (Date.now() - session.lastMediaTime > config.mediaTimeout) {
+                    logger.error({ jobId }, "Media Timeout: No audio packets for 15s. Killing stream.");
+                    ws.terminate();
+                }
+            }, config.heartbeatInterval);
+
+            ws.on("pong", () => { session.isAlive = true; });
 
             ws.on("message", async (msg) => {
                 const data = JSON.parse(msg);
 
                 if (data.event === "media") {
+                    session.lastMediaTime = Date.now();
+                    // Jitter Buffer Tolerance Logic (Simulated by internal queueing if needed)
                     // Forward MULAW to STT...
                 }
 
                 if (data.event === "interruption") {
-                    session.interruptions++;
-                    this.handleBargeIn(jobId);
+                    // Phase 6 - Jitter Barge-in Delay (150ms)
+                    setTimeout(() => {
+                        session.interruptions++;
+                        this.handleBargeIn(jobId);
+                    }, config.bargeInDelay);
                 }
 
                 // MOCK STT CALL (Triggering Turn Adjustment)
@@ -65,13 +114,13 @@ class MediaStreamServer {
                         const durationRatio = (Date.now() - session.startTime) / (state.protocol.runtime.max_call_duration_sec * 1000);
                         const turnsRatio = session.turnCount / state.protocol.conversation.max_turns;
 
-                        const modifiers = AdaptiveEngineService.generateModifiers({
+                        const modifiers = await AdaptiveEngineService.generateModifiers({
                             sentiment: session.lastSentiment,
                             interruptions: session.interruptions,
                             speakingSpeed: session.avgSpeechSpeed,
                             durationRatio,
                             turnsRatio
-                        }, state.protocol);
+                        }, state.protocol, state.lastModifiers);
 
                         logger.info({ jobId, modifiers }, "Adaptive Pulse: Adjusting Next Turn Behavior");
 
@@ -80,12 +129,6 @@ class MediaStreamServer {
                         await StateService.setCallState(jobId, state);
                     }
                 }
-
-                // Track Latency & Apply Graceful Degradation
-                const latency = Date.now() - session.startTime;
-                if (latency > 3000) {
-                    logger.warn({ jobId, latency }, "Latency Spike Detected: Applying Graceful Degradation (Fast Mode)");
-                }
             });
 
             ws.on("error", (err) => {
@@ -93,6 +136,7 @@ class MediaStreamServer {
             });
 
             ws.on("close", async () => {
+                clearInterval(heartbeat);
                 this.metrics.activeCalls--;
                 metrics.active_calls.dec({ node: process.env.HOSTNAME || "node-1" });
 
@@ -101,6 +145,7 @@ class MediaStreamServer {
 
                 await this.completeCall(jobId, session);
             });
+
         });
     }
 

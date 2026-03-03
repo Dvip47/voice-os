@@ -81,6 +81,38 @@ class StateService {
         const counts = await callQueue.getJobCounts("waiting", "active", "delayed");
         return counts.waiting + counts.active + counts.delayed;
     }
+
+    /**
+     * Idempotency Guard (Redis-based)
+     */
+    static async getIdempotentJob(tenantId, idempotencyKey) {
+        const key = `idempotency:${tenantId}:${idempotencyKey}`;
+        return await redisConnection.get(key);
+    }
+
+    static async setIdempotentJob(tenantId, idempotencyKey, jobId) {
+        const key = `idempotency:${tenantId}:${idempotencyKey}`;
+        // TTL 5 minutes per v1.2 requirement
+        await redisConnection.set(key, jobId, "EX", 300);
+    }
+
+    /**
+     * Retrieves current metadata from the state store for the status endpoint.
+     */
+    static async getCallStatus(jobId) {
+        const key = `call:state:${jobId}`;
+        const data = await redisConnection.get(key);
+        if (!data) return null;
+
+        const state = JSON.parse(data);
+        return {
+            status: state.status || "queued",
+            duration_sec: state.endTime ? (state.endTime - state.startTime) / 1000 : 0,
+            turns_used: state.turnCount || 0,
+            termination_reason: state.termination_reason || "in_progress",
+            region: state.protocol?.execution?.region || state.protocol?.runtime?.region || "auto"
+        };
+    }
 }
 
 module.exports = { StateService };

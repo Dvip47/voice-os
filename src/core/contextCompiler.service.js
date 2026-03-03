@@ -37,7 +37,7 @@ class ContextCompilerService {
     static normalize(protocol) {
         const sbec = JSON.parse(JSON.stringify(protocol)); // Deep clone
 
-        // Apply sanitization to all textual fields
+        // Apply sanitization to v1.2 structure
         sbec.agent.name = this.sanitize(sbec.agent.name);
         sbec.agent.role = this.sanitize(sbec.agent.role);
         sbec.knowledge.scope = this.sanitize(sbec.knowledge.scope);
@@ -53,13 +53,14 @@ class ContextCompilerService {
     static compile(rawProtocol, adaptiveModifiers = null) {
         const sbec = this.normalize(rawProtocol);
         const {
+            execution,
+            target,
             agent,
             knowledge,
             conversation,
             objective,
             memory,
             constraints,
-            runtime,
             protocol_version
         } = sbec;
 
@@ -72,18 +73,16 @@ class ContextCompilerService {
 === PROTOCOL METADATA ===
 Version: ${protocol_version}
 Compliance: SBEC-v6-COMPUTE-NEUTRAL
+Execution Region: ${execution.region}
 
 === IDENTITY ===
 - Name: ${agent.name}
 - Role: ${agent.role}
-- Organization: ${agent.organization || "Independent"}
-- Authority: ${agent.authority_level}
-- Regional Cluster: ${runtime.region || "ap-south-1"} (Edge-Local Execution)
+- Authority Projection: ${agent.authority_level} (Range 0-1)
 
 === KNOWLEDGE BOUNDARY ===
 - Primary Scope: ${knowledge.scope}
-- Allowed Knowledge: ${Array.isArray(knowledge.allowed_material) ? knowledge.allowed_material.join(", ") : "Strictly limited to scope"}
-- Knowledge Depth: ${knowledge.depth}
+- Knowledge Depth: ${knowledge.depth} (Enforce ${knowledge.depth === "deep" ? "Expert Detail" : "Core Facts"})
 - External Tools: ${knowledge.external_lookup ? "ENABLED (Scoped)" : "DISABLED"}
 ${constraints.strict_scope_enforcement ? "- SCOPE ENFORCEMENT: STRICT. If a user asks anything outside the Primary Scope, you MUST decline to answer and restate your boundary." : ""}
 
@@ -92,19 +91,11 @@ ${constraints.strict_scope_enforcement ? "- SCOPE ENFORCEMENT: STRICT. If a user
 - Verbosity: ${conversation.behavioral_profile.verbosity}
 - Directness: ${conversation.behavioral_profile.directness}
 - Exploration Bias: ${conversation.behavioral_profile.exploration_bias}
-- Authority Projection: ${conversation.behavioral_profile.authority_projection}
-
-=== INTERACTION STRATEGY ===
-- Dialogic Interaction: ${conversation.interaction_strategy.dialogic}
-- Multi-Turn Enabled: ${conversation.interaction_strategy.multi_turn}
-- Clarification Allowed: ${conversation.interaction_strategy.clarification_allowed}
-- Acknowledgment-Only Mode: ${conversation.interaction_strategy.ack_only}
+- Finalization Indicator: ${conversation.behavioral_profile.authority_projection}
 
 === CONVERSATION STYLE ===
 - Language: ${conversation.language} (STRICT)
-- Tone Override: ${conversation.tone}
-- Style Pattern: ${conversation.style}
-- [GUARD] Response Word Limit: ${finalWordLimit} words. (ENFORCED)
+- Word Limit: ${finalWordLimit} words per response.
 `;
 
         // Inject Adaptive Tier if active signals detected
@@ -122,14 +113,14 @@ ${constraints.strict_scope_enforcement ? "- SCOPE ENFORCEMENT: STRICT. If a user
         prompt += `
 === OBJECTIVE & SUCCESS ===
 - Primary Objective: ${objective.primary_goal}
-- Success Condition: ${objective.success_condition || "User intent fulfilled"}
+- Success Condition: ${objective.success_condition}
 - Completion Trigger: If Success Condition is met, transition immediately to End Behavior.
 - End Behavior: ${objective.end_behavior}
 
 === CONSTRAINTS & SAFETY ===
 - Forbidden Topics: ${Array.isArray(constraints.forbidden_topics) ? constraints.forbidden_topics.join(", ") : "None"}
 - Uncertainty Policy: ${constraints.uncertainty_policy}
-- Memory Persistence: ${memory && memory.enabled ? `Active (${memory.scope})` : "Disabled"}
+- Memory Persistence: ${memory.enabled ? `Active (${memory.scope})` : "Disabled"}
 
 === HARD RUNTIME RULES ===
 1. You are a VOICE interface. Responses must be phonetically natural.

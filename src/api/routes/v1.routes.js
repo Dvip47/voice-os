@@ -16,6 +16,13 @@ router.post(
     CallController.execute
 );
 
+// GET /v1/call/status/:job_id
+router.get(
+    "/call/status/:job_id",
+    authenticateApiKey,
+    CallController.status
+);
+
 /**
  * Twilio Voice Webhook (TwiML Generator)
  * Entry point for Twilio to start a WebSocket Media Stream.

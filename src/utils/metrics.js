@@ -50,6 +50,38 @@ const total_calls = new client.Counter({
     labelNames: ["tenant", "mode"]
 });
 
+// Phase 6 - India SLA Dashboard Metrics
+const call_success_rate = new client.Gauge({
+    name: "voice_runtime_call_success_rate",
+    help: "Percentage of calls reaching success condition",
+    labelNames: ["region"]
+});
+
+const call_connect_rate = new client.Gauge({
+    name: "voice_runtime_call_connect_rate",
+    help: "Percentage of initiated calls that connected",
+    labelNames: ["carrier"]
+});
+
+const avg_answer_time = new client.Histogram({
+    name: "voice_runtime_answer_time_ms",
+    help: "Time from initiation to answer",
+    labelNames: ["region"],
+    buckets: [500, 1000, 2000, 5000, 10000]
+});
+
+const webhook_delivery_rate = new client.Gauge({
+    name: "voice_runtime_webhook_delivery_rate",
+    help: "Success rate of client callbacks",
+    labelNames: ["tenant"]
+});
+
+const carrier_failure_rate = new client.Counter({
+    name: "voice_runtime_carrier_failures_total",
+    help: "Total telephony/PSTN level failures",
+    labelNames: ["region", "error_type"]
+});
+
 module.exports = {
     register: client.register,
     metrics: {
@@ -58,6 +90,11 @@ module.exports = {
         stt_latency,
         call_duration,
         active_calls,
-        total_calls
+        total_calls,
+        call_success_rate,
+        call_connect_rate,
+        avg_answer_time,
+        webhook_delivery_rate,
+        carrier_failure_rate
     }
 };
